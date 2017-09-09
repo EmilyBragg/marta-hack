@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="initial-scale=1.0, width=device-width" />
+<link rel="stylesheet" type="text/css" href="https://js.cit.api.here.com/v3/3.0/mapsjs-ui.css" />
+<script type="text/javascript" src="https://js.cit.api.here.com/v3/3.0/mapsjs-core.js"></script>
+<script type="text/javascript" src="https://js.cit.api.here.com/v3/3.0/mapsjs-service.js"></script>
+<script type="text/javascript" src="https://js.cit.api.here.com/v3/3.0/mapsjs-ui.js"></script>
+<script type="text/javascript" src="https://js.cit.api.here.com/v3/3.0/mapsjs-mapevents.js"></script>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+</head>
+<body>
+
+  <div id="map" style="width: 100%; height: 400px; background: grey" />
+    <div id="slider">Total Time (Minutes)
+    <input type="range" id="q" class="input" min="0" max="120" step="1" >
+    </div>
+    <div id="startPoint">Starting GPS Pair
+    <input type="text" id="q2" class="input" value="33.782939,-84.3812694" >
+    </div>
+
+  <script  type="text/javascript" charset="UTF-8" >
+function getDistanceFromLatLonInKm(lat1,lon1,lat2,lon2) {
+  var R = 6371; // Radius of the earth in km
+  var dLat = deg2rad(lat2-lat1);  // deg2rad below
+  var dLon = deg2rad(lon2-lon1); 
+  var a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2)
+    ; 
+  var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+  var d = R * c; // Distance in km
+  return d;
+}
+/**
+- get starting point
+- get total time
+- get walking time
+- (get number of transfers)
+- pull all MARTA stations within <walking distance> of starting point
+- filter for the nearest station on each line
+- pull all MARTA stations withing <total time - walking distance>
+- filter any duplicates
+- get polygons for each depending on how much time is left
+- create and plot each polygon
+
+*/
+document.getElementById('q2').onchange = function(value) {
+    clearPolygons(map);
+    addOtherPolygon(map);
+};
+document.getElementById('q').onchange = function(value) {
+    clearPolygons(map);
+    addOtherPolygon(map);
+};
+var lineList = [];
+function clearPolygons(map) {
+    // WORKS
+    console.log(lineList);
+    for (i = 0; i < lineList.length; i++) {
+        map.removeObject(lineList[i]);
+    }
+    lineList = [];
+};
+
+function addOtherPolygon(map) {
+    // WORKS
+    var seconds = document.getElementById("q").value * 60;
+    var startLoc = document.getElementById("q2").value;
+    var callback = function(data) {
+        console.log("adding polygon to map!")
+        lineList.push(addPolygonToMap(map, data));
+    }
+    $.ajax({
+    url: 'https://isoline.route.cit.api.here.com/routing/7.2/calculateisoline.json',
+    type: 'GET',
+    dataType: 'jsonp',
+    jsonp: 'jsoncallback',
+    data: {
+        mode: 'fastest;pedestrian',
+        start: startLoc,
+        rangetype: 'time',
+        range: seconds,
+        app_id: 't78EWHTAS2NBFUBYkSzv',
+        app_code: 'dC_fKEsPc81JA9PThzCM0Q'
+    },
+    success: function (data) {
+        var success_data = data['response']['isoline'][0]['component'][0]['shape'].join(',0,');
+        var success_numbers = success_data.split(',').map(Number);
+        callback(success_numbers.concat([0]));
+        
+    }
+    });
+}
+
+function addPolygonToMap(map, list_of_vals) {
+  console.log("adding" + list_of_vals + " to map!");
+  var lineString = new H.geo.LineString(
+    list_of_vals, 
+    'values lat lng alt'
+  );
+  var newPoly = new H.map.Polygon(lineString, {
+      style: {
+        strokeColor: '#829',
+        lineWidth:3, 
+      }
+  })
+  map.addObject(newPoly);
+  return newPoly;
+}
+
+
+/**
+ * Boilerplate map initialization code starts below:
+ */
+
+//Step 1: initialize communication with the platform
+var platform = new H.service.Platform({
+  app_id: 't78EWHTAS2NBFUBYkSzv',
+  app_code: 'dC_fKEsPc81JA9PThzCM0Q',
+  useCIT: true,
+  useHTTPS: true
+});
+var defaultLayers = platform.createDefaultLayers();
+
+//Step 2: initialize a map - this map is centered over Europe
+var map = new H.Map(document.getElementById('map'),
+  defaultLayers.normal.map,{
+  center: {lat:33.78, lng:-84.38},
+  zoom: 13
+});
+
+//Step 3: make the map interactive
+// MapEvents enables the event system
+// Behavior implements default interactions for pan/zoom (also on mobile touch environments)
+var behavior = new H.mapevents.Behavior(new H.mapevents.MapEvents(map));
+
+// Create the default UI components
+var ui = H.ui.UI.createDefault(map, defaultLayers);
+
+
+// Now use the map as required...
+addOtherPolygon(map, '600')
+  </script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+1) get (precise) geocoordinates of all MARTA stations 
+2) calculate time between all MARTA stations (single p2p)
+3) get all stations within walking distance of a given GPS starting point
+4) get all stations with travel distance of the initial station list
+
