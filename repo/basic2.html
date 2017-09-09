@@ -3,35 +3,45 @@
 <head>
 <meta name="viewport" content="initial-scale=1.0, width=device-width" />
 <link rel="stylesheet" type="text/css" href="https://js.cit.api.here.com/v3/3.0/mapsjs-ui.css" />
+<link rel="stylesheet" type="text/css" href="./basic.css" />
 <script type="text/javascript" src="https://js.cit.api.here.com/v3/3.0/mapsjs-core.js"></script>
 <script type="text/javascript" src="https://js.cit.api.here.com/v3/3.0/mapsjs-service.js"></script>
 <script type="text/javascript" src="https://js.cit.api.here.com/v3/3.0/mapsjs-ui.js"></script>
 <script type="text/javascript" src="https://js.cit.api.here.com/v3/3.0/mapsjs-mapevents.js"></script>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+<script type="text/javascript" src="./stationdata.js"></script>
 </head>
 <body>
 
   <div id="map" style="width: 100%; height: 400px; background: grey" />
-    <div id="slider">Total Time (Minutes)
-    <input type="range" id="q" class="input" min="0" max="120" step="1" >
+    <div id="slidecontainer">
+    Total Time (Minutes): 
+    <span id="currentValue">30</span> 
+    <input type="range" id="totalTime" class="slider" min="0" max="60" step="1" defaultValue="30"
+         oninput="document.getElementById('currentValue').innerHTML=this.value;"
+    </div>
+    <div id="slidecontainer">
+    Walking Time (Minutes): 
+    <span id="currentWalkValue">30</span> 
+    <input type="range" id="walkTime" class="slider" min="0" max="60" step="1" defaultValue="30"
+         oninput="document.getElementById('currentWalkValue').innerHTML=this.value;"
     </div>
     <div id="startPoint">Starting GPS Pair
-    <input type="text" id="q2" class="input" value="33.782939,-84.3812694" >
+    <input type="text" id="startLoc" class="input" value="33.782939,-84.3812694" >
     </div>
 
   <script  type="text/javascript" charset="UTF-8" >
-function getDistanceFromLatLonInKm(lat1,lon1,lat2,lon2) {
-  var R = 6371; // Radius of the earth in km
-  var dLat = deg2rad(lat2-lat1);  // deg2rad below
-  var dLon = deg2rad(lon2-lon1); 
-  var a = 
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
-    Math.sin(dLon/2) * Math.sin(dLon/2)
-    ; 
-  var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
-  var d = R * c; // Distance in km
-  return d;
+
+function distance(lat1, lon1, lat2, lon2) {
+    var radlat1 = Math.PI * lat1/180
+    var radlat2 = Math.PI * lat2/180
+    var theta = lon1-lon2
+    var radtheta = Math.PI * theta/180
+    var dist = Math.sin(radlat1) * Math.sin(radlat2) + Math.cos(radlat1) * Math.cos(radlat2) * Math.cos(radtheta);
+    dist = Math.acos(dist)
+    dist = dist * 180/Math.PI
+    dist = dist * 60 * 1.1515
+    return dist
 }
 /**
 - get starting point
@@ -44,58 +54,128 @@ function getDistanceFromLatLonInKm(lat1,lon1,lat2,lon2) {
 - filter any duplicates
 - get polygons for each depending on how much time is left
 - create and plot each polygon
-
+- do I want to be able to reverse the route when clicked?
 */
-document.getElementById('q2').onchange = function(value) {
+var stations = []
+var nearStations = []
+
+function updateNearStations() {
+    var walkingTime = parseFloat(document.getElementById("walkTime").value);
+    var walkingRange = minutesToMiles(walkingTime); 
+    var startLoc = document.getElementById("startLoc").value;
+    var stations = stationList.filter(
+
+        function(value) {
+            var lat = parseFloat(value[3]);
+            var long = parseFloat(value[4]);
+            
+            var startLoc = document.getElementById("startLoc").value.split(',');
+            var dist = distance(lat, long, parseFloat(startLoc[0]), parseFloat(startLoc[1]));
+    
+            if (dist < walkingRange) {
+                return true;
+            }
+        }
+    );
+    $.each(stations, 
+        function(key, value){
+            var stationLoc = [value[3], value[4]].join();
+            var stationId= value[0];
+            $.ajax({
+            url: 'https://route.cit.api.here.com/routing/7.2/calculateroute.json',
+            type: 'GET',
+            dataType: 'jsonp',
+            async: false,
+            jsonp: 'jsoncallback',
+            data: {
+                mode: 'fastest;pedestrian',
+                waypoint0: startLoc, 
+                waypoint1: stationLoc,
+                app_id: 't78EWHTAS2NBFUBYkSzv',
+                app_code: 'dC_fKEsPc81JA9PThzCM0Q'
+            },
+            success: function (data) {
+                var successData = parseFloat(data['response']['route'][0]['summary']['travelTime'])/60;
+                if (successData < walkingTime) {
+                    nearStations.push([stationId, successData]);
+                    // add all far stations and their remaining time to the stations list
+                    // color all the far stations
+                }
+            }
+    
+        });
+      });
+        
+}
+    
+
+document.getElementById('walkTime').onchange = function(value) {
+    // when walk time changes, that changes everything
     clearPolygons(map);
-    addOtherPolygon(map);
+    nearStations = [];
+    stations = [];
+    updateNearStations();
+    console.log(nearStations.length);
+    console.log(nearStations);
+    updateMap();
+    
 };
-document.getElementById('q').onchange = function(value) {
+document.getElementById('totalTime').onchange = function(value) {
+    // when total time changes, some stuff changes
+    // nearstations are the same
     clearPolygons(map);
-    addOtherPolygon(map);
+    updateMap();
 };
+document.getElementById('startLoc').onchange = function(value) {
+    // redo everything
+    clearPolygons(map);
+    nearStations = [];
+    stations = [];
+    updateNearStations();
+    console.log(nearStations.length);
+    console.log(nearStations);
+    updateMap();
+};
+
 var lineList = [];
 function clearPolygons(map) {
     // WORKS
-    console.log(lineList);
     for (i = 0; i < lineList.length; i++) {
         map.removeObject(lineList[i]);
     }
     lineList = [];
 };
 
-function addOtherPolygon(map) {
+function addCentralPolygon(map) {
     // WORKS
-    var seconds = document.getElementById("q").value * 60;
-    var startLoc = document.getElementById("q2").value;
+    var seconds = document.getElementById("walkTime").value * 60; // q.value is in Minutes
+    var startLoc = document.getElementById("startLoc").value;
     var callback = function(data) {
-        console.log("adding polygon to map!")
         lineList.push(addPolygonToMap(map, data));
     }
     $.ajax({
-    url: 'https://isoline.route.cit.api.here.com/routing/7.2/calculateisoline.json',
-    type: 'GET',
-    dataType: 'jsonp',
-    jsonp: 'jsoncallback',
-    data: {
-        mode: 'fastest;pedestrian',
-        start: startLoc,
-        rangetype: 'time',
-        range: seconds,
-        app_id: 't78EWHTAS2NBFUBYkSzv',
-        app_code: 'dC_fKEsPc81JA9PThzCM0Q'
-    },
-    success: function (data) {
-        var success_data = data['response']['isoline'][0]['component'][0]['shape'].join(',0,');
-        var success_numbers = success_data.split(',').map(Number);
-        callback(success_numbers.concat([0]));
-        
-    }
+        url: 'https://isoline.route.cit.api.here.com/routing/7.2/calculateisoline.json',
+        type: 'GET',
+        dataType: 'jsonp',
+        jsonp: 'jsoncallback',
+        data: {
+            mode: 'fastest;pedestrian',
+            start: startLoc,
+            rangetype: 'time',
+            range: seconds,
+            app_id: 't78EWHTAS2NBFUBYkSzv',
+            app_code: 'dC_fKEsPc81JA9PThzCM0Q'
+        },
+        success: function (data) {
+            var success_data = data['response']['isoline'][0]['component'][0]['shape'].join(',0,');
+            var success_numbers = success_data.split(',').map(Number);
+            callback(success_numbers.concat([0]));
+            
+        }
     });
 }
 
 function addPolygonToMap(map, list_of_vals) {
-  console.log("adding" + list_of_vals + " to map!");
   var lineString = new H.geo.LineString(
     list_of_vals, 
     'values lat lng alt'
@@ -139,9 +219,23 @@ var behavior = new H.mapevents.Behavior(new H.mapevents.MapEvents(map));
 // Create the default UI components
 var ui = H.ui.UI.createDefault(map, defaultLayers);
 
+function minutesToMiles(minutes) { 
+    // assuming average walking speed of 2.5 MPH
+    return minutes / 60.0 * 2.5;
+};
 
-// Now use the map as required...
-addOtherPolygon(map, '600')
+// addOtherPolygon(map);
+
+function updateMap() {
+    addCentralPolygon(map);
+    // update the list of nearby stations (handled by the updater functions, done)
+    
+    
+    // update the list of reachable stations with remaining walk-time
+    // draw a rectangle for all of those stations as well as the starting point based on walk-time
+}
+updateMap();
+
   </script>
 </body>
 </html>
